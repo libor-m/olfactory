@@ -1,4 +1,6 @@
+#
 # download the genomes
+#
 # medaka
 # is in ensembl
 wget ftp://ftp.ensembl.org/pub/release-92/fasta/oryzias_latipes/pep/Oryzias_latipes.MEDAKA1.pep.abinitio.fa.gz
@@ -17,7 +19,18 @@ wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/624/265/GCF_001624265.1_ASM1
 wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/624/265/GCF_001624265.1_ASM162426v1/GCF_001624265.1_ASM162426v1_protein.faa.gz
 wget ftp://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_other/Scleropages_formosus/latest_assembly_versions/GCF_001624265.1_ASM162426v1/GCF_001624265.1_ASM162426v1_translated_cds.faa.gz
 
-# shit...not working as usually
+#
+# check the input data
+#
+<data-tilapia/tilapia_OR_gusta_vomer_TAARs_reference.fasta grep '^>' | sort | uniq -d
+# there is one duplicate sequence..
+
+#
+# try exonerate with coding2genome model, which should do the
+# online translation and comparison in protein space
+#
+# .. not working as it's usual with biologist tools ;)
+# (exhausting 12 GB ram while not searching..)
 QUERY=data-tilapia/tilapia_OR_gusta_vomer_TAARs_reference.fasta
 TARGET=data-genomes/r-esox/GCA_000150935.1_ASM15093v1_genomic.fna
 exonerate \
@@ -59,5 +72,75 @@ time lastz "$TARGET[multiple]" $QUERY --format=sam > data-results/r-esox.sam
 # 16 seconds, 120 sequences matched
 
 time lastz "$TARGET[multiple]" $QUERY --format=general > data-results/r-esox.tsv
+
+# TODO: merge regions close enough
+
+#
+# test gmap for the closer species
+#
+gmap_build -d r-esox-13 -k 13 -D data-genomes/r-esox data-genomes/r-esox/GCA_000150935.1_ASM15093v1_genomic.fna
+gmap -d r-esox-13 -D data-genomes/r-esox -f gff3_gene data-tilapia/tilapia_OR_gusta_vomer_TAARs_reference.fasta > data-results/r-esox.gff3
+
+# simple mapping statistics
+<data-results/r-esox.gff3 fgrep "mrna1.exon" | egrep -o "Name=[^; ]*" | sort  -u | wc -l
+<data-results/r-esox.gff3 grep -v "^#" | cut -f1 | sort -u | wc -l
+<data-results/r-esox.gff3 grep -c "^###"
+# 69 query genes hit 18 different scaffolds in 94 gene models
+
+# number of hits in different scaffolds
+<data-results/r-esox.gff3 cut -f1 | uniq | grep -v "^#" | sort | uniq -c | sort -rn
+
+#
+# the simple way to get spliced coding sequences
+#
+GENOME=data-genomes/r-esox/GCA_000150935.1_ASM15093v1_genomic.fna
+
+# get all coding sequence (cds) matches
+# sort it
+# merge overlapping regions, respect strand
+# add two more columns to get the strand to the correct column
+# get the sequence (reverse complement - strand)
+# cluster 'exons' closer than 1000 bases together
+# dump each cluster as separate fasta sequence
+# wrap the lines at 120 chars
+#
+<data-results/r-esox.gff3 awk '($3 == "CDS")' |
+   sort -k1,1 -k4n,4 |
+   bedtools merge -s -i - |
+   sed -r 's/([+-])/\t\t\1/' |
+   bedtools getfasta -s -bedOut -fi $GENOME -bed - |
+   bedtools cluster -d 1000 -s |
+   awk -F$'\t' '{
+    if ($8 != cur_grp) {
+      # finish previous, if any
+      if (length(seq)) printf("%d\n%s\n", max, seq);
+
+      # start new
+      printf(">%s_%d_", $1, $2);
+      cur_grp = $8;
+      seq = $7;
+      max = $3;
+    } else {
+      seq = seq $7;
+      max = $3;
+    }
+  }
+  END {
+    printf("%d\n%s\n", max, seq);
+  }' |
+  fold -w120 \
+> data-results/r-esox.gmap-cds.fna
+
+
+# not used, replaced by simple awk
+#
+# now we want to extract exons/CDS of particular matches
+# and create special names for the fasta sequences, it's
+# easier to use a custom script
+#
+# conda create -n olfactory
+# . activate olfactory
+# conda config --add channels bioconda
+# conda install pysam
 
 
