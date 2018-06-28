@@ -95,6 +95,9 @@ gmap -d r-esox-13 -D data-genomes/r-esox -f gff3_gene data-tilapia/tilapia_OR_gu
 #
 GENOME=data-genomes/r-esox/GCA_000150935.1_ASM15093v1_genomic.fna
 
+# bedtools docs
+# http://bedtools.readthedocs.io/en/latest/content/bedtools-suite.html
+#
 # get all coding sequence (cds) matches
 # sort it
 # merge overlapping regions, respect strand
